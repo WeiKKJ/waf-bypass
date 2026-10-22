@@ -1,8 +1,38 @@
 # 跨平台发票抓取工具 · 使用说明
 
+绕过瑞数（Riverbed）动态安全防护的 412 挑战，抓取受保护的发票 PDF。
+
+## 快速开始
+
+```bash
+# 1. 配置目标 URL
+cp .env.example .env      # 填入你的发票 URL
+
+# 2. 方式 A：Docker 一键起服务（推荐）
+docker compose up -d api
+curl -G --data-urlencode "url=$TARGET_URL" http://localhost:8000/fetch -o invoice.pdf
+
+# 2. 方式 B：本地直接跑（需 Node 18+ 与 Chrome/Edge/Chromium）
+node fetch-invoice.js --cookie-only "$TARGET_URL"   # 采集 Cookie
+WAF_COOKIE="<上一步输出的Cookie>" node http-client.js "$TARGET_URL" invoice.pdf
+```
+
+> ⚠️ `.env` 已被 `.gitignore` 排除，你的真实发票 URL 不会进入版本库。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [API.md](API.md) | FastAPI 服务接口说明 |
+| [DOCKER.md](DOCKER.md) | 镜像构建、部署、踩坑记录 |
+| [POSTMAN-GUIDE.md](POSTMAN-GUIDE.md) | 用 Postman 调试 |
+| [PURE-HTTP.md](PURE-HTTP.md) | 三种技术路线对比与 jsdom 失败记录 |
+
+---
+
 ## 〇、FastAPI 服务（对外 HTTP 接口）
 
-需要通过接口调用的，看 [API.md](API.md)。核心策略是**先直接 GET，只有收到 412 才启动浏览器自愈**：
+需要通过接口调用的，看 [API.md](API.md)。核心策略是**随用随取**：先直接 GET，收到 412 才用该域名的缓存 Cookie，仍失败才现场采集一次（不重试成环）：
 
 ```bash
 docker compose up -d api          # 监听 http://localhost:8000
@@ -11,9 +41,11 @@ curl -G --data-urlencode "url=$TARGET_URL" http://localhost:8000/fetch -o invoic
 
 | 接口 | 用途 |
 |---|---|
-| `GET /fetch?url=...&save=true` | 返回 PDF 流 |
-| `POST /fetch` | JSON 入参 `{url, save, filename}` |
+| `GET /fetch?url=...` | 返回 PDF 流（不落盘） |
+| `POST /fetch` | JSON 入参 `{url}` |
 | `GET /check?url=...` | 只探测状态与自愈路径 |
+| `GET /cache` | 查看各域名的 Cookie 缓存 |
+| `DELETE /cache[?domain=...]` | 清除 Cookie 缓存 |
 | `GET /health` | 健康检查 |
 | `GET /docs` | Swagger 交互文档 |
 
@@ -21,9 +53,9 @@ curl -G --data-urlencode "url=$TARGET_URL" http://localhost:8000/fetch -o invoic
 
 ## 一、解决什么问题
 
-`fetch-invoice.js` 解决了原方案 `fetch-with-waf.js` 的三个可移植性缺陷：
+早期版本的脚本有三个可移植性缺陷，`fetch-invoice.js` 逐一解决：
 
-| 原方案的问题 | 本版本 |
+| 早期方案的问题 | 本版本 |
 |---|---|
 | 硬编码 Windows 浏览器路径 | 自动探测 Windows / macOS / Linux 下的 Chrome / Edge / Chromium |
 | 必须开 GUI 窗口（headless 会 400） | **headless + CDP 覆盖 UA**，无窗口依赖，服务端也能跑 |

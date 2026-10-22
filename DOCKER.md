@@ -1,6 +1,6 @@
 # Docker 部署说明
 
-结论：**能跑，已实测通过。** 推荐 `selfheal` 服务（采集 + 下载一体，412 自动重取）。
+结论：**能跑，已实测通过。** 推荐 `api` 服务（FastAPI 接口，随用随取，412 自动自愈，全程不落盘）；批处理落盘用 `selfheal` 服务（采集 + 下载一体）。
 
 **实测环境**：Docker Desktop 29.7.2（Windows / Linux 容器模式）、Docker Compose v2。
 
@@ -62,7 +62,7 @@
 
 | 服务 | 基础镜像 | 大小 | 含浏览器 | 用途 |
 |---|---|---|---|---|
-| **`api`** ⭐ | Playwright 官方镜像 + Python | 2.29GB | ✅ | **推荐**。FastAPI 服务，随用随取，412 自动自愈，全程不落盘（见 [API.md](API.md)） |
+| **`api`** ⭐ | Playwright 官方镜像 + Python | 3.07GB | ✅ | **推荐**。FastAPI 服务，随用随取，412 自动自愈，全程不落盘（见 [API.md](API.md)） |
 | `selfheal` | Playwright 官方镜像 | 2.98GB | ✅ | 一次性命令行：采集 + 下载 + 自愈，PDF 落到宿主机 `out/` |
 | `http-only` | `node:22-alpine` | 239MB | ❌ | 纯 HTTP，需要外部提供 1~3 分钟内有效的 Cookie |
 | `invoice` | `node:22-alpine` | 239MB | ❌ | 构建时采集 Cookie，运行时下载（一次性任务） |
@@ -243,16 +243,20 @@ docker: Error response from daemon: the working directory '...' is invalid
 ### 2. 自愈依赖同目录有 fetch-invoice.js
 `http-client.js` 会在 `__dirname` 找 `fetch-invoice.js`。纯 HTTP 镜像（`http-only`）没带这个文件，遇到 412 会提示「同目录下未找到 fetch-invoice.js，无法自动采集」。
 
-### 3. Cookie 与客户端 IP 绑定 —— 硬约束
-同一台 Docker 主机上的容器出口 IP 相同（NAT 后），可跨容器复用。**但跨主机部署必失效** —— Cookie 供应端和业务端必须在同一台机器或同一 NAT 出口上。
+### 3. Cookie 失效的主因是时间，不是 IP
+同一台 Docker 主机上的容器出口 IP 相同（NAT 后），**跨容器可以复用**。实测把容器共享网络栈（`--network container:`）后，间隔 3 分钟的 Cookie 依然 412 —— 说明变量是**时间**而非 IP。
 
-K8s 多副本：若各 Pod 经不同 SNAT 网关出口 → Cookie 失效。解法是 SNAT 收敛到同一出口，或用 DaemonSet 让每节点各自维护一份。
+**唯一真正的硬约束**：Cookie 必须在 1~3 分钟内用掉。因此：
+- 采集与使用必须在同一进程/同一次会话内完成（自愈模式天然满足）
+- 跨主机部署时不必担心 IP，但**不能**指望预先采集的 Cookie 能跨主机存活过有效期
+
+K8s 多副本：自愈模式下每次请求都会重新采集，约束很弱；若改用共享缓存，需保证各 Pod 能在有效期内（1~3 分钟）消费到该缓存。
 
 ### 4. Chromium 在容器里需要 `--no-sandbox`
 `fetch-invoice.js` 已内置 `--no-sandbox` 和 `--disable-dev-shm-usage`。
 
 ### 5. 中文 PDF 需要 CJK 字体
-轻量镜像装了 `fonts-noto-cjk`；Playwright 镜像自带。缺字体可能导致 PDF 渲染异常。
+`api` / `selfheal` 基于 Playwright 官方镜像，**自带 CJK 字体**，无需额外安装。纯 HTTP 镜像（`http-only` / `invoice`）不渲染 PDF，只做文件搬运，也不涉及字体。缺字体可能导致 PDF 渲染异常。
 
 ### 6. Alpine 跑不了 Chromium
 最终镜像用 `node:22-alpine` 只跑纯 HTTP，没问题。但**采集阶段绝不能用 Alpine**（musl 缺 glibc 依赖）。

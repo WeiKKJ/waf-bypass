@@ -174,7 +174,7 @@ node fetch-invoice.js --url-from-file list.txt
 
 产出 `out_001.pdf`、`out_002.pdf`……，并把 Cookie 存到 `waf_cookie.txt` 供后续复用。
 
-**批量优化**：第一张取一次 Cookie，后续复用。Cookie 有效期内（约 15 分钟）不重复开浏览器，速度快很多。失效时自动重取。
+**批量优化**：第一张取一次 Cookie，后续复用。Cookie 有效期内（实测仅 **1~3 分钟**）不重复开浏览器，速度快很多。失效时自动重取。
 
 ---
 
@@ -281,6 +281,18 @@ async function fetchInvoice(url, cookie) {
 
 ### Docker（Linux 无 GUI）
 
+推荐用项目自带的多阶段 Dockerfile（`selfheal` / `api` stage，基于 Playwright 官方镜像，无需手动装 Chromium）：
+
+```bash
+docker compose up -d api          # FastAPI 服务
+# 或
+docker compose run --rm selfheal   # 一次性采集 + 下载
+```
+
+详见 [DOCKER.md](DOCKER.md)。
+
+若要自己写 Dockerfile，注意两点：Chromium 需 `--no-sandbox`（脚本已内置），中文 PDF 需要 CJK 字体：
+
 ```dockerfile
 FROM node:20-slim
 RUN apt-get update && apt-get install -y chromium chromium-sandbox fonts-noto-cjk \
@@ -291,7 +303,7 @@ WORKDIR /app
 CMD ["node", "fetch-invoice.js"]
 ```
 
-> Docker 内注意：`--no-sandbox` 参数脚本已内置；如遇崩溃可加 `--disable-gpu`。
+> ⚠️ 自行 `apt-get` 装 Chromium 的路线在国内源上构建极慢（实测 26 分钟未完成）。项目因此已移除该 stage，改为直接用 Playwright 官方镜像。
 
 ---
 

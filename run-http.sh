@@ -12,7 +12,9 @@ OUT="${1:-/app/out/invoice.pdf}"
 
 if [ ! -s "$COOKIE_FILE" ]; then
   echo "Cookie 文件为空或不存在: $COOKIE_FILE" >&2
-  echo "请先启动 cookie-provider 容器：docker compose up -d cookie-provider" >&2
+  echo "请先采集一份 Cookie（有效期仅 1~3 分钟，需立即使用）：" >&2
+  echo "  node fetch-invoice.js --cookie-only \"\$TARGET_URL\" | grep '^Cookie:' | sed 's/^Cookie: //' > \$COOKIE_FILE" >&2
+  echo "或直接使用带浏览器的 selfheal 服务 / FastAPI api 服务，它们会自动自愈采集。" >&2
   exit 2
 fi
 

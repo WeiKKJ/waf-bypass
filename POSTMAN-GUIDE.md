@@ -153,15 +153,17 @@ Content-Type: application/pdf;charset=utf-8
    ```
 4. Runner → Data 选 CSV，Iterations 填数量
 
-### 5.2 用脚本批量（更适合定时任务）
+### 5.2 用脚本批量（更适合自动化集成）
 
-`fetch-with-waf.js` 已内置"取 Cookie → 纯 HTTP 重放"完整链路：
+`fetch-invoice.js` 已内置「取 Cookie → 纯 HTTP 重放」完整链路：
 
 ```bash
-node fetch-with-waf.js "<URL>" "out.pdf"
+node fetch-invoice.js "<URL>" "out.pdf"
 ```
 
 批量场景建议改成：先跑一次脚本拿 `waf_cookie.txt`，再用 Python/Node 业务代码读这个文件带 Cookie 请求，遇到 412 再刷新。
+
+> 更好的做法是直接用 **FastAPI 服务**（`api.py`）：它已经内建了「直接 GET → 缓存 Cookie → 现场采集 → 有界重试」全套逻辑，PDF 不落盘，也不用你自己管 Cookie 文件。详见 [API.md](API.md)。
 
 ---
 
@@ -176,7 +178,7 @@ node fetch-with-waf.js "<URL>" "out.pdf"
 | 换 Jym 值 | 200 ✅ |
 
 **结论**：
-- Cookie **不是**一次永久有效，实测约 15 分钟左右失效
+- Cookie **不是**一次永久有效。早期测得「约 15 分钟」，后续更严格的时间实验证明实际只有 **1~3 分钟**（详见 [DOCKER.md](DOCKER.md) 第一节）—— 所以第 3 行那个 15 分钟的样本其实已远超有效期边缘。
 - 但**跨 URL 通用**——一次取 Cookie，可连续请求不同发票
 - 生产环境需在 412 时自动刷新
 
@@ -208,7 +210,7 @@ pdf = fetch(URL, cookie)
 
 如果只是拿发票，**直接用浏览器下载最省事**：地址栏粘贴 URL 即可。
 
-如果是要做系统集成，**建议不用 Postman**——Postman 的 Cookie 管理与这个场景天然冲突，还得手工贴 700 字符的 Cookie。用脚本（`fetch-with-waf.js`）更干净。
+如果是要做系统集成，**建议不用 Postman**——Postman 的 Cookie 管理与这个场景天然冲突，还得手工贴 700 字符的 Cookie。用脚本（`fetch-invoice.js`）更干净；要对外提供接口就直接上 FastAPI 服务（`api.py`）。
 
 ---
 
@@ -216,10 +218,10 @@ pdf = fetch(URL, cookie)
 
 1. **不需要伪装 User-Agent** —— 实测用 Postman 默认 UA 或不带 UA 都是 200。这点比很多网上的方案简单。
 2. **不要开 Postman 的 Cookie 管理** —— 会覆盖手动 Cookie。
-3. **Cookie 约 15 分钟失效** —— 长会话注意刷新。
+3. **Cookie 有效期仅 1~3 分钟** —— 长会话注意刷新，别指望一次采集管一天。
 4. **CDP 抓 PDF 响应体取不到** —— 浏览器导航完成后 body 已释放，所以脚本用"取 Cookie + 纯 HTTP 重放"的方式，已实测可靠。
-5. **headless 不可用** —— `HeadlessChrome` 标识会被识别（实测得 400 而非 412，注意区分）。工具已强制用非 headless。
-6. **合规提示** —— 单机偶尔取票属正常使用。若做定时批量采集，请先确认符合站点服务条款与数据合规要求，控制请求频率。频繁取票建议走官方渠道申请 API 权限。
+5. **headless 需覆盖 UA** —— `HeadlessChrome` 标识会被识别（实测得 400 而非 412，注意区分）。本项目的 `fetch-invoice.js` 已改用 **headless + CDP 覆盖 User-Agent**（`Network.setUserAgentOverride`），覆盖后 headless 稳定返回 200，无需 GUI 窗口。
+6. **合规提示** —— 单机偶尔取票属正常使用。若做批量采集，请先确认符合站点服务条款与数据合规要求，控制请求频率。频繁取票建议走官方渠道申请 API 权限。
 
 ---
 

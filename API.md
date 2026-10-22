@@ -75,6 +75,8 @@ curl -G --data-urlencode "url=$TARGET_URL" http://localhost:8000/fetch -o invoic
 10 次调用后 waf-bypass-api-1   36.9kB (virtual 2.29GB)   ← 完全没变
 ```
 
+> 注：可写层会有几个 kB 的正常浮动（容器日志等运行时元数据），关键是**调用前后不增长**。
+
 `docker diff` 中的条目全部是 tmpfs 挂载点（`/app/__pycache__` 实际占用 0 字节），不计入容器可写层。
 
 ## 启动

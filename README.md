@@ -26,6 +26,7 @@ WAF_COOKIE="<上一步输出的Cookie>" node http-client.js "$TARGET_URL" invoic
 | [API.md](API.md) | FastAPI 服务接口说明 |
 | [DOCKER.md](DOCKER.md) | 镜像构建、部署、踩坑记录 |
 | [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md) | 镜像导出与离线移植（tar 打包、目标环境导入） |
+| [DOCKER-HUB-PUSH.md](DOCKER-HUB-PUSH.md) | 推送到 Docker Hub（Registry v2 分块上传，绕开代理断链） |
 | [POSTMAN-GUIDE.md](POSTMAN-GUIDE.md) | 用 Postman 调试 |
 | [PURE-HTTP.md](PURE-HTTP.md) | 三种技术路线对比与 jsdom 失败记录 |
 
@@ -305,6 +306,40 @@ CMD ["node", "fetch-invoice.js"]
 ```
 
 > ⚠️ 自行 `apt-get` 装 Chromium 的路线在国内源上构建极慢（实测 26 分钟未完成）。项目因此已移除该 stage，改为直接用 Playwright 官方镜像。
+
+### 从 Docker Hub 直接拉取
+
+镜像已发布，无需本地构建：
+
+```bash
+docker pull weikkj/waf-api:latest
+docker pull weikkj/waf-selfheal:latest
+docker pull weikkj/waf-http:latest
+docker pull weikkj/waf-invoice:latest
+```
+
+| 镜像 | 拉取体积 | 解压后 | 用途 |
+|---|---|---|---|
+| `weikkj/waf-api` | 741MB | 3.07GB | FastAPI 服务（推荐） |
+| `weikkj/waf-selfheal` | 722MB | 2.98GB | 一次性采集 + 下载，PDF 落盘 |
+| `weikkj/waf-http` | 58MB | 239MB | 纯 HTTP 客户端（无浏览器） |
+| `weikkj/waf-invoice` | 58MB | 239MB | 构建时采 Cookie、运行时下载 |
+
+四个镜像共享 26 个唯一层，Docker Hub 全局去重，重复拉取只有差异层需要下载。平台为 **linux/amd64**。
+
+```bash
+docker run -d --name waf-api -p 8000:8000 \
+  --tmpfs /tmp:size=512m,mode=1777 \
+  --tmpfs /var/cache/fontconfig:size=16m \
+  --tmpfs /app/__pycache__:size=16m \
+  --tmpfs /ms-playwright/chromium-1134/chrome-linux/extensions:size=16m \
+  -e WAF_HEAL_TIMEOUT=120 --restart unless-stopped \
+  weikkj/waf-api:latest
+```
+
+> ⚠️ tmpfs 挂载是必须的，否则浏览器 profile 与缓存会写进可写层并持续膨胀。
+
+离线环境（无法访问 Docker Hub）请用 tar 包方式导入，见 [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md)。
 
 ---
 

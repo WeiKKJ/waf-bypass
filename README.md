@@ -26,6 +26,7 @@ WAF_COOKIE="<上一步输出的Cookie>" node http-client.js "$TARGET_URL" invoic
 | [API.md](API.md) | FastAPI 服务接口说明 |
 | [DOCKER.md](DOCKER.md) | 镜像构建、部署、踩坑记录 |
 | [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md) | 镜像导出与离线移植（tar 打包、目标环境导入） |
+| [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md) | **只部署 waf-api 单镜像**（移植到其他系统推荐读这份） |
 | [DOCKER-HUB-PUSH.md](DOCKER-HUB-PUSH.md) | 推送到 Docker Hub（Registry v2 分块上传，绕开代理断链） |
 | [POSTMAN-GUIDE.md](POSTMAN-GUIDE.md) | 用 Postman 调试 |
 | [PURE-HTTP.md](PURE-HTTP.md) | 三种技术路线对比与 jsdom 失败记录 |
@@ -327,6 +328,8 @@ docker pull weikkj/waf-invoice:latest
 
 四个镜像共享 26 个唯一层，Docker Hub 全局去重，重复拉取只有差异层需要下载。平台为 **linux/amd64**。
 
+> **只做接口调用的话，拉 `weikkj/waf-api` 一个就够** —— 它是自包含的（FastAPI + Node + Chromium + Python 全在一层），另三个镜像只有在做批量落盘或纯 HTTP 方案时才需要。详见 [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md)。
+
 ```bash
 docker run -d --name waf-api -p 8000:8000 \
   --tmpfs /tmp:size=512m,mode=1777 \
@@ -337,7 +340,7 @@ docker run -d --name waf-api -p 8000:8000 \
   weikkj/waf-api:latest
 ```
 
-> ⚠️ tmpfs 挂载是必须的，否则浏览器 profile 与缓存会写进可写层并持续膨胀。
+> 💡 建议挂 tmpfs：挂上后容器可写层稳定在 36.9kB；不挂也能正常工作（205kB，且不随调用次数增长），但挂上可保证可写层绝对恒定。详见 [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md)。
 
 离线环境（无法访问 Docker Hub）请用 tar 包方式导入，见 [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md)。
 

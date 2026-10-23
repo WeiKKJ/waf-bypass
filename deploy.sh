@@ -109,8 +109,13 @@ if [ -f "docker-compose.yml" ]; then
   echo "    curl -G --data-urlencode \"url=\$TARGET_URL\" http://localhost:8000/fetch -o invoice.pdf"
 else
   echo "  未找到 docker-compose.yml，跳过自动启动。"
-  echo "  手动启动示例："
-  echo "    docker run -d --name waf-api -p 8000:8000 --tmpfs /tmp:size=512m,mode=1777 waf-api:latest"
+  echo "  手动启动示例（只起 api 服务即可）："
+  echo "    docker run -d --name waf-api -p 8000:8000 \\"
+  echo "      --tmpfs /tmp:size=512m,mode=1777 \\"
+  echo "      --tmpfs /var/cache/fontconfig:size=16m \\"
+  echo "      --tmpfs /app/__pycache__:size=16m \\"
+  echo "      --tmpfs /ms-playwright/chromium-1134/chrome-linux/extensions:size=16m \\"
+  echo "      -e WAF_HEAL_TIMEOUT=120 --restart unless-stopped waf-api:latest"
 fi
 
 echo ""

@@ -29,7 +29,7 @@ docker run -d --name waf-api \
   weikkj/waf-api:latest
 ```
 
-> ⚠️ **tmpfs 挂载是必须的** —— 没有它，浏览器 profile、Chromium 缓存、pycache 会写进容器可写层，长期运行会持续膨胀。
+> 💡 **建议挂 tmpfs** —— 挂上后容器可写层稳定在 36.9kB，不挂也能正常工作（稳定在 205kB，不随调用次数增长），但挂上可保证可写层绝对恒定。
 
 调用：
 ```bash
@@ -77,7 +77,9 @@ docker run --rm \
 
 https://github.com/WeiKKJ/waf-bypass
 
-完整文档见仓库内 `API.md`（接口说明）、`DOCKER.md`（构建与踩坑）、`DEPLOY-OFFLINE.md`（离线移植）。
+完整文档见仓库内 `API.md`（接口说明）、`DOCKER.md`（构建与踩坑）、`DEPLOY-SINGLE.md`（单镜像部署）、`DEPLOY-OFFLINE.md`（离线移植）。
+
+> **只做接口调用的话，拉 `waf-api` 一个镜像就够**，它是自包含的（FastAPI + Node + Chromium + Python 全在一层）。
 
 ## 架构要求
 

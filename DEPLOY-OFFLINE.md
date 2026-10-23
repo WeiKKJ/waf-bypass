@@ -83,7 +83,7 @@ docker run -d --name waf-api \
   waf-api:latest
 ```
 
-tmpfs 挂载是**必须**的 —— 没有它，浏览器 profile、Chromium 缓存、pycache 会写进容器可写层，长期运行会持续膨胀。
+tmpfs 挂载是**强烈建议**的 —— 挂上后容器可写层稳定在 36.9kB；不挂也能正常工作（稳定在 205kB，不随调用次数增长），但挂上可保证可写层绝对恒定。详见 [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md)。
 
 ---
 

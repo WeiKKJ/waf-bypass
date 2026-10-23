@@ -25,6 +25,7 @@ WAF_COOKIE="<上一步输出的Cookie>" node http-client.js "$TARGET_URL" invoic
 |---|---|
 | [API.md](API.md) | FastAPI 服务接口说明 |
 | [DOCKER.md](DOCKER.md) | 镜像构建、部署、踩坑记录 |
+| [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md) | 镜像导出与离线移植（tar 打包、目标环境导入） |
 | [POSTMAN-GUIDE.md](POSTMAN-GUIDE.md) | 用 Postman 调试 |
 | [PURE-HTTP.md](PURE-HTTP.md) | 三种技术路线对比与 jsdom 失败记录 |
 

@@ -129,7 +129,7 @@ docker compose run --rm selfheal     # 采集 + 下载 + 自愈，跑完退出
 
 ```bash
 docker build --no-cache -f waf-bypass/Dockerfile --target selfheal \
-  -t waf-selfheal:latest --build-arg TARGET_URL="<发票URL>" .
+  -t waf-selfheal:latest .
 
 docker run --rm \
   -v "$(pwd)/out:/app/out" \
@@ -139,6 +139,8 @@ docker run --rm \
 ```
 
 > ⚠️ 加 `--no-cache`。实测遇到过 Dockerfile 已 COPY 新文件、但镜像里却没有的情况 —— Docker 构建缓存没失效。改完 Dockerfile 建议加这个参数。
+>
+> ⚠️ **不要用 `--build-arg TARGET_URL=...`** —— 早期版本这么写，会把真实发票 URL 固化进镜像 config（`docker inspect` 可见，公开仓库会泄露发票号码）。现在 `TARGET_URL` 一律运行时用 `-e` 传入。
 
 ### 批量下载
 
@@ -284,14 +286,14 @@ ENTRYPOINT ["python", "http_client.py"]
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: waf-invoice
+  name: waf-client
 spec:
   replicas: 2
   selector:
-    matchLabels: { app: waf-invoice }
+    matchLabels: { app: waf-client }
   template:
     metadata:
-      labels: { app: waf-invoice }
+      labels: { app: waf-client }
     spec:
       containers:
         - name: client

@@ -14,16 +14,15 @@
 
 > **为什么 OCI 版不再提供 .tar.gz**：OCI 的层本身就是 gzip 压缩的（`application/vnd.oci.image.layer.v1.tar+gzip`），再套一层 gzip 只能从 800MB 压到 793MB，几乎白费磁盘和时间。legacy 版的层是未压缩 tar，gzip 后从 4.5GB 降到 1.6GB，效果显著。
 
-包含 4 个镜像：
+包含 3 个镜像：
 
 | 镜像 | 体积 | 用途 |
 |---|---|---|
 | `waf-api:latest` | 3.07GB | **推荐**。FastAPI 服务，随用随取，412 自动自愈，全程不落盘 |
 | `waf-selfheal:latest` | 2.98GB | 一次性命令行：采集 + 下载一体，PDF 落盘到宿主机 `out/` |
-| `waf-http:latest` | 239MB | 纯 HTTP 客户端（不含浏览器），需外部提供 1~3 分钟内有效的 Cookie |
-| `waf-invoice:latest` | 239MB | 构建时采集 Cookie、运行时下载（一次性任务） |
+| `waf-http:latest` | 233MB | 纯 HTTP 客户端（不含浏览器），需外部提供 1~3 分钟内有效的 Cookie |
 
-**层已去重**：4 个镜像共 37 个层引用，实际只有 26 个唯一层，所以单个 tar 是 800MB 而不是 6.5GB。
+**层已去重**：3 个镜像共 35 个层引用，实际只有 25 个唯一层，所以单个 tar 是 800MB 而不是 6.5GB。
 
 ---
 
@@ -107,10 +106,13 @@ curl -G --data-urlencode "url=$URL" http://localhost:8000/fetch -o invoice.pdf -
 ### 架构要求
 镜像平台是 **linux/amd64**。ARM 机器（如 ARM 服务器、树莓派）需注册 `qemu-user-static` 做 binfmt 模拟才能运行，Chromium 在模拟下性能很差，不建议。
 
-### Cookie 有效期 1~3 分钟 —— 不要预置 Cookie
-镜像内 `waf-invoice` / `waf-http` 自带的 Cookie 在构建时采集，导出后早已失效。**这不影响使用**：
+### Cookie 有效期 1~3 分钟 —— 镜像内不预置 Cookie
+**镜像内不含任何 Cookie。** 早期版本曾在构建期采集 Cookie 烤进镜像，但瑞数 Cookie 1~3 分钟即失效，烤进镜像的 Cookie 导出时必然已失效，等于既无效又泄露凭据 —— 已移除。
 - `waf-api` 和 `waf-selfheal` 会在遇到 412 时**现场重新采集**，不依赖任何预置 Cookie
-- 纯 HTTP 版（`waf-http`）没有浏览器，需要外部注入新鲜 Cookie，或改用 `waf-api`
+- 纯 HTTP 版（`waf-http`）没有浏览器，需要外部注入新鲜 Cookie（挂载到 `/app/cookies/waf_cookie.txt`），或改用 `waf-api`
+
+### 镜像内不含目标 URL
+`TARGET_URL` 一律运行时传入（`docker run -e TARGET_URL=...`），不固化进镜像 config。早期版本用 `--build-arg TARGET_URL` 曾把真实发票 URL（含发票号码）泄露到公开仓库，**已修复**。
 
 ### 目标环境不需要 Playwright 基础镜像
 `mcr.microsoft.com/playwright:v1.47.0-noble` 这个 tag 在导出机器上已被清理，但**它的全部层已包含在 `waf-api` / `waf-selfheal` 内部**，导出的镜像是自包含的，不影响 `docker load`。
@@ -131,15 +133,14 @@ docker pull mcr.microsoft.com/playwright:v1.47.0-noble
 ```bash
 cd waf-bypass
 
-# 1. 构建（4 个 target）
+# 1. 构建（3 个 target）
 docker compose build api
 docker compose build selfheal
 docker compose build http-only
-docker compose build invoice
 
 # 2. 导出（一次 save 自动去重共享层）
 docker save -o waf-bypass-images.tar \
-  waf-api:latest waf-selfheal:latest waf-http:latest waf-invoice:latest
+  waf-api:latest waf-selfheal:latest waf-http:latest
 
 # 3. 若需兼容 Docker < 25.0，转换格式（4.5GB 未压缩）
 python tools/oci2dockerarchive.py \
@@ -149,6 +150,9 @@ rm waf-bypass-images-legacy.tar             # 只留压缩版
 
 # 4. 生成校验和
 cd /data/waf-bypass-images && sha256sum *.tar* > SHA256SUMS
+
+# 5. 导出前务必确认镜像内无敏感信息
+docker image inspect waf-api:latest --format '{{json .Config}}' | grep -i "TARGET_URL\|Fphm=" && echo "⚠ 有泄露，停止导出"
 ```
 
 `tools/oci2dockerarchive.py` 把 Docker 25+ 默认输出的 OCI layout 转成传统 docker-archive，同时保持层去重和 RepoTags 完整。

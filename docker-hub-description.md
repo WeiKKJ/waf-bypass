@@ -8,10 +8,11 @@
 |---|---|---|---|
 | `weikkj/waf-api:latest` | 741MB | 3.07GB | **推荐**。FastAPI 服务，随用随取，412 自动自愈，全程不落盘 |
 | `weikkj/waf-selfheal:latest` | 722MB | 2.98GB | 一次性命令行：采集 + 下载一体，PDF 落盘到宿主机 `out/` |
-| `weikkj/waf-http:latest` | 58MB | 239MB | 纯 HTTP 客户端（不含浏览器），需外部提供 1~3 分钟内有效的 Cookie |
-| `weikkj/waf-invoice:latest` | 58MB | 239MB | 构建时采集 Cookie、运行时下载（一次性任务） |
+| `weikkj/waf-http:latest` | 53MB | 233MB | 纯 HTTP 客户端（不含浏览器），需外部提供 1~3 分钟内有效的 Cookie |
 
-> 拉取体积为 Docker Hub 存储的压缩层大小；解压后为镜像可写层总大小。四个镜像共享 26 个唯一层，Docker Hub 全局去重，重复拉取时只有差异层需要下载。
+> 拉取体积为 Docker Hub 存储的压缩层大小；解压后为镜像可写层总大小。三个镜像共享 25 个唯一层，Docker Hub 全局去重，重复拉取时只有差异层需要下载。
+>
+> **镜像内不含任何目标 URL 与 Cookie。** `TARGET_URL` 一律运行时传入（`docker run -e TARGET_URL=...`），避免公开仓库泄露真实发票信息。
 
 ## 快速开始
 

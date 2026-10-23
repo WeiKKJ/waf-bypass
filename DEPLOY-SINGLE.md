@@ -47,15 +47,14 @@ GET /fetch   → http=200  size=151896  type=application/pdf
 
 ---
 
-## 二、什么时候才需要另外三个镜像
+## 二、什么时候才需要另外两个镜像
 
 | 镜像 | 什么时候需要 |
 |---|---|
 | `weikkj/waf-selfheal` | 需要**批量下载并落盘**到宿主机时（`docker run --rm -v ./out:/app/out`）。走 API 的话 PDF 直接走 HTTP 流回客户端，不落盘 |
 | `weikkj/waf-http` | 需要**纯 HTTP 无浏览器**方案时。但它没有浏览器，412 无法自愈，必须外部注入 1~3 分钟内的新鲜 Cookie |
-| `weikkj/waf-invoice` | 一次性任务，构建期已采 Cookie。仅在你确定 URL 完全固定、且不需要自愈时用 |
 
-**只用 API 接口的话，这三个都不需要。**
+**只用 API 接口的话，这两个都不需要。**
 
 ---
 

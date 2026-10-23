@@ -24,35 +24,72 @@ Docker daemon 走 `192.168.65.1:3128` 代理，单次长连接约 2 分钟被切
 
 ## 使用流程
 
-### 0. 导出镜像
+### 0. 门禁：扫描敏感信息（必做）
+
+```bash
+python tools/scan_image_secrets.py \
+  weikkj/waf-api:latest weikkj/waf-selfheal:latest weikkj/waf-http:latest
+```
+
+退出码 0 = 干净。检查镜像 config（ENV / Cmd）与文件层（`waf_cookie.txt` / `.env`）里
+是否含目标 URL、发票号码、瑞数 Cookie。**有泄露就绝对不能推送** ——
+推到公开仓库后无法撤回。详见 [SECURITY.md](SECURITY.md)。
+
+### 1. 导出镜像
 
 ```bash
 docker save -o waf-images.tar \
-  weikkj/waf-api:latest weikkj/waf-selfheal:latest \
-  weikkj/waf-http:latest weikkj/waf-invoice:latest
+  weikkj/waf-api:latest weikkj/waf-selfheal:latest weikkj/waf-http:latest
 ```
 
-### 1. 提取 manifest
+### 2. 提取 manifest 与层 blob
 
 ```bash
-python tools/extract_manifests.py waf-images.tar dh_manifests
+python tools/extract_manifests.py waf-images.tar dh_manifests   # manifest v2 JSON
+python tools/extract_blobs.py    waf-images.tar dh_blobs        # 各层 blob
 ```
 
-输出 4 份 Docker manifest v2 JSON（`waf-api.manifest.json` 等），并把各层 blob 落盘到 `dh_blobs/`。
+`dh_manifests/` 下会生成 `docker.io_weikkj_waf-api.manifest.json` 这样的文件
+（`/` 替换为 `_`）。
 
-### 2. 逐层上传
-
-`push_layer.py` 是**单层**接口，需按 manifest 中的层列表逐个调用：
+### 3. 一键推送
 
 ```bash
-# 从 manifest 读出各层 digest 与本地 blob 路径后循环
+python tools/push_all.py \
+  --manifests dh_manifests --blobs dh_blobs --pat "$PAT" \
+  --repos weikkj/waf-api weikkj/waf-selfheal weikkj/waf-http \
+  --primary weikkj/waf-api
+```
+
+`push_all.py` 对每个 repo 依次做：HEAD 查缺 → 缺失层分块上传 → 跨仓库 mount →
+提交 manifest。**Docker Hub 全局去重**，已存在的层直接跳过，重推极快
+（实测重推三个镜像只传了 3 个小 blob）。
+
+> `--primary` 指定跨仓库 mount 的源仓库。多个镜像共享的大层（如 Playwright 基础层
+> 602MB）在 Docker Hub 上不自动跨 repo 共享，需显式 mount。
+
+### 3'. 手动分步（需要精细控制时）
+
+`push_layer.py` 是**单层**接口：
+
+```bash
 python tools/push_layer.py --repo weikkj/waf-api \
-  --blob dh_blobs/blob_<digest> \
-  --digest sha256:<digest> \
-  --pat $PAT
+  --blob dh_blobs/blob_<digest> --digest sha256:<digest> --pat $PAT
 ```
 
-脚本会先 HEAD 检查远端是否已存在该层，存在则直接跳过，不重复传。
+跨仓库挂载共享层：
+
+```bash
+python tools/mount_blob.py --repo weikkj/waf-selfheal \
+  --from weikkj/waf-api --digest sha256:27be7e60... --pat $PAT
+```
+
+提交 manifest（提交前会 HEAD 校验所有层存在，缺层则拒绝提交）：
+
+```bash
+python tools/push_manifest.py --repo weikkj/waf-selfheal \
+  --manifest dh_manifests/docker.io_weikkj_waf-selfheal.manifest.json --pat $PAT
+```
 
 也可以直接用 docker CLI（不走代理、层较小时更省事）：
 
@@ -62,7 +99,7 @@ docker push weikkj/waf-api:latest
 
 但注意 `docker push` 在有代理的环境推大层会断链（见下节），此时用上面的 `push_layer.py`。
 
-### 3. 跨仓库挂载共享层
+### 4. 跨仓库挂载共享层
 
 多个镜像共享的大层（如 Playwright 基础层 602MB）在 Docker Hub 上**不会自动跨 repo 共享**，需显式 mount：
 
@@ -76,16 +113,16 @@ python tools/mount_blob.py \
 
 返回 `201` 即成功。token 需同时带目标仓库的 `pull,push` 与源仓库的 `pull` scope —— 脚本已自动处理。
 
-### 4. 提交 manifest
+### 5. 提交 manifest
 
 ```bash
 python tools/push_manifest.py --repo weikkj/waf-selfheal \
-  --manifest dh_manifests/waf-selfheal.manifest.json --pat $PAT
+  --manifest dh_manifests/docker.io_weikkj_waf-selfheal.manifest.json --pat $PAT
 ```
 
 提交前会 HEAD 校验所有层是否已存在，缺层则明确列出并拒绝提交（避免产生「manifest 指向空层」的坏镜像）。
 
-### 5. 校验
+### 6. 校验
 
 ```bash
 python tools/verify_remote.py --repos weikkj/waf-api weikkj/waf-selfheal
@@ -103,11 +140,19 @@ python tools/verify_remote.py --repos weikkj/waf-api weikkj/waf-selfheal
 | token 续期 | registry token 有效期 300 秒，脚本每 200 秒主动续期；遇 401 立即换 token 重试当前块 |
 | 无 body 请求 | `data=None` 时需显式补 `Content-Length: 0`，否则 registry 返回 411 |
 | 代理 | 脚本内 `urllib.request.ProxyHandler({})` 强制直连，绕开代理长连接断链 |
+| Location 头大小写 | HTTP/2 会把头名小写化（`location` 而非 `Location`），`dict(headers)` 键不保证大小写 —— 必须大小写不敏感地取 |
+| Location 可能是相对 URL | 形如 `/v2/...` 时需拼上 `https://registry-1.docker.io` 前缀 |
+| push_all 复用 | Docker Hub 全局去重，重推时绝大多数层已存在，HEAD 命中直接跳过 |
 
 ## 安全提示
 
 - PAT 只通过 `--pat` 命令行传入，**不要写进脚本或提交到仓库**
 - `dh_secret.txt` / `dh_pat.txt` / `dh_regtoken.txt` 等临时凭据文件用完请立即删除
+- **推送前必跑 `tools/scan_image_secrets.py`** —— 镜像 config 里的 `TARGET_URL` 会被任何人读到，
+  推到公开仓库后无法撤回。详见 [SECURITY.md](SECURITY.md)
+- 若 PAT 泄露，请到 https://hub.docker.com/settings/tokens 吊销重置
+- 删除 tag 需要 `delete` scope：
+  `repository:<repo>:pull,push,delete`（多 scope 之间的空格要编码为 `%20`）
 - 若 PAT 泄露，请到 https://hub.docker.com/settings/tokens 吊销重置
 
 ## 常见问题

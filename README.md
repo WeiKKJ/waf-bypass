@@ -28,6 +28,7 @@ WAF_COOKIE="<上一步输出的Cookie>" node http-client.js "$TARGET_URL" invoic
 | [DEPLOY-OFFLINE.md](DEPLOY-OFFLINE.md) | 镜像导出与离线移植（tar 打包、目标环境导入） |
 | [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md) | **只部署 waf-api 单镜像**（移植到其他系统推荐读这份） |
 | [DOCKER-HUB-PUSH.md](DOCKER-HUB-PUSH.md) | 推送到 Docker Hub（Registry v2 分块上传，绕开代理断链） |
+| [SECURITY.md](SECURITY.md) | **镜像敏感信息防护规则**（TARGET_URL 不得固化进镜像、推送前门禁） |
 | [POSTMAN-GUIDE.md](POSTMAN-GUIDE.md) | 用 Postman 调试 |
 | [PURE-HTTP.md](PURE-HTTP.md) | 三种技术路线对比与 jsdom 失败记录 |
 
@@ -316,19 +317,19 @@ CMD ["node", "fetch-invoice.js"]
 docker pull weikkj/waf-api:latest
 docker pull weikkj/waf-selfheal:latest
 docker pull weikkj/waf-http:latest
-docker pull weikkj/waf-invoice:latest
 ```
 
 | 镜像 | 拉取体积 | 解压后 | 用途 |
 |---|---|---|---|
 | `weikkj/waf-api` | 741MB | 3.07GB | FastAPI 服务（推荐） |
 | `weikkj/waf-selfheal` | 722MB | 2.98GB | 一次性采集 + 下载，PDF 落盘 |
-| `weikkj/waf-http` | 58MB | 239MB | 纯 HTTP 客户端（无浏览器） |
-| `weikkj/waf-invoice` | 58MB | 239MB | 构建时采 Cookie、运行时下载 |
+| `weikkj/waf-http` | 53MB | 233MB | 纯 HTTP 客户端（无浏览器） |
 
-四个镜像共享 26 个唯一层，Docker Hub 全局去重，重复拉取只有差异层需要下载。平台为 **linux/amd64**。
+三个镜像共享 25 个唯一层，Docker Hub 全局去重，重复拉取只有差异层需要下载。平台为 **linux/amd64**。
 
-> **只做接口调用的话，拉 `weikkj/waf-api` 一个就够** —— 它是自包含的（FastAPI + Node + Chromium + Python 全在一层），另三个镜像只有在做批量落盘或纯 HTTP 方案时才需要。详见 [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md)。
+> **只做接口调用的话，拉 `weikkj/waf-api` 一个就够** —— 它是自包含的（FastAPI + Node + Chromium + Python 全在一层），另两个镜像只有在做批量落盘或纯 HTTP 方案时才需要。详见 [DEPLOY-SINGLE.md](DEPLOY-SINGLE.md)。
+
+> 🔒 **镜像内不含目标 URL 与 Cookie。** `TARGET_URL` 一律运行时传入（`docker run -e TARGET_URL=...`）。早期版本曾用 `--build-arg TARGET_URL` 把它固化进镜像 config，导致真实发票 URL 泄露到公开仓库 —— 已修复并删除相关 tag。
 
 ```bash
 docker run -d --name waf-api -p 8000:8000 \

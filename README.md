@@ -15,7 +15,6 @@
 - [快速开始](#快速开始)
 - [为什么原来的镜像这么大](#为什么原来的镜像这么大)
 - [镜像体积对比](#镜像体积对比)
-- [命令行用法](#命令行用法)
 - [HTTP 接口](#http-接口)
 - [设计要点](#设计要点)
 - [常见问题](#常见问题)
@@ -46,7 +45,8 @@
 
 ## 快速开始
 
-### Docker（推荐）
+**本项目只提供 Docker 使用方式。** 所有能力都封装在镜像里，无需在宿主机安装
+Node.js 或浏览器。
 
 ```bash
 git clone https://github.com/WeiKKJ/waf-bypass.git
@@ -58,13 +58,35 @@ curl -G --data-urlencode "url=$TARGET_URL" \
      http://localhost:8000/fetch -o invoice.pdf
 ```
 
-### 本地 Node（无需 Docker）
-
-需要本机装有 Chrome / Edge / Chromium 之一，Node.js ≥ 20。
+也可以直接用镜像，无需克隆仓库：
 
 ```bash
-node waf-token.js "<URL>" --json      # 取 Cookie
-node http-client.js "<URL>" out.pdf   # 纯 HTTP 重放下载
+docker run -d --name waf-api --shm-size=512m -p 8000:8000 \
+  weikkj/waf-token-slim:latest
+
+curl -G --data-urlencode "url=$TARGET_URL" \
+     http://localhost:8000/fetch -o invoice.pdf
+```
+
+### 三种服务
+
+`docker-compose.yml` 提供三个服务，按需选一个：
+
+| 服务 | 镜像 | 用途 |
+|---|---|---|
+| `api` | `weikkj/waf-token-slim` | HTTP 服务，常驻，对外提供接口 |
+| `selfheal` | `weikkj/waf-selfheal-slim` | 一次性采集 + 下载，PDF 落盘到 `./out` |
+| `http-only` | `weikkj/waf-http-slim` | 纯 HTTP 重放，**不含浏览器**，需外部注入 Cookie |
+
+```bash
+# 常驻 HTTP 服务
+docker compose up -d api
+
+# 一次性下载，PDF 落到 ./out/invoice.pdf
+docker compose run --rm selfheal
+
+# 纯 HTTP 模式（需先备好 Cookie，见 http-client.js 的 Cookie 来源优先级）
+docker compose run --rm http-only
 ```
 
 ---
@@ -134,39 +156,12 @@ const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocke
 
 ---
 
-## 命令行用法
-
-### `waf-token.js` —— 取 Cookie
-
-```bash
-node waf-token.js "<URL>"            # 打印 Cookie 串
-node waf-token.js "<URL>" --json     # JSON 输出（含 cookie / names / status）
-```
-
-环境变量：
-
-| 变量 | 说明 |
-|---|---|
-| `CHROME_PATH` | Chromium 可执行文件路径（不设则自动探测常见位置） |
-| `WAF_UA` | 自定义 User-Agent |
-| `WAF_WAIT_MS` | 等挑战 JS 执行的时间，默认 `14000` |
-
-### `http-client.js` —— 纯 HTTP 重放
-
-```bash
-node http-client.js "<URL>" out.pdf
-node http-client.js "<URL>" --check              # 只测连通性
-node http-client.js --url-from-file list.txt      # 批量
-```
-
-Cookie 来源优先级：`--cookie-file` 参数 > `WAF_COOKIE` 环境变量 >
-`WAF_COOKIE_FILE` 环境变量 > 同目录 `waf_cookie.txt`。
-
 ---
 
 ## HTTP 接口
 
-`node server.js` 或 `docker compose up -d api` 后监听 `:8000`。
+`docker compose up -d api` 或 `docker run weikkj/waf-token-slim:latest` 后，
+服务监听容器内 `:8000`（映射到宿主机 `8000:8000`）。
 
 | 接口 | 说明 |
 |---|---|

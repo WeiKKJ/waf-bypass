@@ -125,6 +125,10 @@ const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocke
 
 **磁盘 -73%，拉取 -72%。**
 
+> **旧 tag 已被精简版覆盖。** `weikkj/waf-api` / `weikkj/waf-selfheal` / `weikkj/waf-http`
+> 现在指向的就是精简镜像 —— 拉旧名字即可获得小体积版本，无需改任何命令。
+> 旧的 `weikkj/waf-invoice` 已废弃（compose 里 `target` 与 `waf-http` 重复，已合并）。
+
 如果你的场景是「已有 Cookie、只需纯 HTTP 重放」，
 直接用 `waf-http-slim` —— 239MB，且**完全不需要浏览器**。
 

@@ -68,27 +68,6 @@ curl -G --data-urlencode "url=$TARGET_URL" \
      http://localhost:8000/fetch -o invoice.pdf
 ```
 
-### 三种服务
-
-`docker-compose.yml` 提供三个服务，按需选一个：
-
-| 服务 | 镜像 | 用途 |
-|---|---|---|
-| `api` | `weikkj/waf-token-slim` | HTTP 服务，常驻，对外提供接口 |
-| `selfheal` | `weikkj/waf-selfheal-slim` | 一次性采集 + 下载，PDF 落盘到 `./out` |
-| `http-only` | `weikkj/waf-http-slim` | 纯 HTTP 重放，**不含浏览器**，需外部注入 Cookie |
-
-```bash
-# 常驻 HTTP 服务
-docker compose up -d api
-
-# 一次性下载，PDF 落到 ./out/invoice.pdf
-docker compose run --rm selfheal
-
-# 纯 HTTP 模式（需先备好 Cookie，见 http-client.js 的 Cookie 来源优先级）
-docker compose run --rm http-only
-```
-
 ---
 
 ## 为什么原来的镜像这么大
@@ -140,21 +119,13 @@ const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocke
 
 | 镜像 | 磁盘占用 | 拉取体积 | 说明 |
 |---|---:|---:|---|
-| `weikkj/waf-api`（旧） | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
-| `weikkj/waf-token-slim`（新） | **815 MB** | **237 MB** | 主镜像：HTTP 服务 + CLI |
-| `weikkj/waf-selfheal-slim`（新） | 815 MB | 237 MB | 同上，CLI 入口，PDF 落盘 |
-| `weikkj/waf-http-slim`（新） | **239 MB** | **61.4 MB** | 纯 HTTP 重放，不含浏览器 |
+| `weikkj/waf-api`（旧版） | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
+| `weikkj/waf-token-slim`（当前） | **815 MB** | **237 MB** | 唯一镜像：HTTP 服务 |
 
 **磁盘 -73%，拉取 -72%。**
 
-> **旧 tag 已被精简版覆盖。** `weikkj/waf-api` / `weikkj/waf-selfheal` / `weikkj/waf-http`
-> 现在指向的就是精简镜像 —— 拉旧名字即可获得小体积版本，无需改任何命令。
-> 旧的 `weikkj/waf-invoice` 已废弃（compose 里 `target` 与 `waf-http` 重复，已合并）。
-
-如果你的场景是「已有 Cookie、只需纯 HTTP 重放」，
-直接用 `waf-http-slim` —— 239MB，且**完全不需要浏览器**。
-
----
+> 本项目只发布一个镜像 `weikkj/waf-token-slim`。
+> 早期的 `waf-selfheal` / `waf-http` / `waf-invoice` 等仓库已删除。
 
 ---
 

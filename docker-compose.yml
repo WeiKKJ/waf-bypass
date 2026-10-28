@@ -9,8 +9,10 @@
 #
 # 用法：
 #   cp .env.example .env            # 填入 TARGET_URL
-#   docker compose up -d api         # ← 推荐：对外 HTTP 接口
-#   docker compose run --rm selfheal # 一次性采集+下载，PDF 落盘
+#   docker compose up -d api
+#
+#   curl -G --data-urlencode "url=$TARGET_URL" \
+#        http://localhost:8000/fetch -o invoice.pdf
 #
 # ⚠️ 安全约束：TARGET_URL 一律通过 environment（运行时）传入，
 #    **不要**用 build args 烤进镜像 —— ENV 会固化进镜像 config，
@@ -41,49 +43,3 @@ services:
     restart: unless-stopped
     # Chromium 需要更大的 /dev/shm，否则渲染页面时会崩
     shm_size: "512m"
-
-  # ============ 一次性自愈下载（命令行批处理用）============
-  # 注意：没有定时服务了。定时轮询固定周期反复访问同一域名，
-  # 容易被服务端识别为爬虫而加黑，因此改为按需调用 api 服务。
-  # 需要批量落盘时可手动执行本服务。
-  selfheal:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: selfheal
-    image: weikkj/waf-selfheal-slim:latest
-    environment:
-      - TARGET_URL=${TARGET_URL}
-    volumes:
-      - ./out:/app/out
-      - ./cookie:/app/cookies
-    # 浏览器临时文件走 tmpfs，容器可写层不随运行时间增长
-    # （./out 是宿主机挂载卷，PDF 落盘在宿主机，不占容器层）
-    tmpfs:
-      - /tmp:size=512m,mode=1777
-      - /root/.cache:size=64m,mode=1777
-    shm_size: "512m"
-    # 用 entrypoint + shell，让 $TARGET_URL 在容器内展开
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - node waf-token.js "$$TARGET_URL" /app/out/invoice.pdf
-
-  # ============ 纯 HTTP 版（不含浏览器，最轻量 239MB）============
-  # 需要外部提供有效 Cookie（1~3 分钟内使用）。适合 Cookie 由其他系统注入的场景。
-  #
-  # ⚠️ TARGET_URL 走运行时环境变量（compose 的 environment），不写进镜像。
-  #    Cookie 从 ./cookie 目录挂载读取 —— 不烤进镜像（1~3 分钟即失效，且属敏感凭据）。
-  http-only:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: http
-    image: weikkj/waf-http-slim:latest
-    environment:
-      - TARGET_URL=${TARGET_URL}
-    volumes:
-      - ./cookie:/app/cookies:ro
-      - ./out:/app/out
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - node http-client.js "$$TARGET_URL" /app/out/invoice.pdf

@@ -23,14 +23,15 @@
 #      + httpx，只为了提供 HTTP 接口。Node 22 自带 http 模块和 fetch，
 #      一个进程就能干完，不需要解释器混装。
 #
-#   5. **合并三个 stage 为一个**
-#      http / selfheal / api 三个 stage 是同一件事的三个切面，
-#      合并后只有一个镜像、一种用法。
+#   5. **只保留 API 一种形态**
+#      早期版本有 http / selfheal / api 三个 stage（三个镜像），
+#      现在只留 api —— 一个镜像提供 HTTP 服务，自愈逻辑内置其中。
+#      纯 HTTP 模式（无浏览器）需要外部注入 Cookie，
+#      对绝大多数场景是多余的负担。
 #
 # 实测体积（amd64）：
-#   weikkj/waf-api:latest      3.07 GB 磁盘 / 777 MB 拉取
-#   waf-token-slim (本文件)     815 MB 磁盘  / 约 220 MB 拉取
-#   仅纯 HTTP 重放 (无浏览器)   239 MB 磁盘 / 61.7 MB 拉取
+#   weikkj/waf-api (旧)         3.07 GB 磁盘 / 777 MB 拉取
+#   weikkj/waf-token-slim       815 MB 磁盘 / 237 MB 拉取
 #
 # ⚠️ 安全约束（不要移除）：
 #   TARGET_URL 一律运行时传入，不要写进镜像 ENV —— ENV 会固化进镜像
@@ -69,35 +70,7 @@ ENV NODE_ENV=production \
     WAF_WAIT_MS=14000 \
     PORT=8000
 
-COPY waf-token.js server.js ./
+COPY server.js ./
 
 EXPOSE 8000
 CMD ["node", "server.js"]
-
-# ---------- Stage 3: 一次性自愈下载（CLI 模式，PDF 落盘）----------
-# 与 api 同一个镜像，只是默认入口不同：
-#   api     —— 起 HTTP 服务，对外提供接口
-#   selfheal —— 跑一次就退出，PDF 写到挂载卷
-FROM api AS selfheal
-
-# ⚠️ TARGET_URL 运行时传入，不写进 ENV（会固化进镜像 config 泄露）
-CMD ["/bin/sh", "-c", "node waf-token.js \"$TARGET_URL\" /app/out/invoice.pdf"]
-
-# ---------- Stage 4: 纯 HTTP 模式（无浏览器，最轻量）----------
-# 场景：Cookie 由外部系统注入，或已有浏览器环境负责采集。
-# 这个镜像不含 chromium，无法自愈 —— 遇 412 直接失败。
-FROM node:22-alpine AS http
-
-WORKDIR /app
-ENV NODE_ENV=production \
-    HOME=/tmp \
-    WAF_COOKIE_FILE=/app/cookies/waf_cookie.txt
-
-COPY http-client.js ./
-
-# Cookie 从挂载卷读取，不烤进镜像（有效期仅 1~3 分钟，且属敏感凭据）
-VOLUME ["/app/cookies", "/app/out"]
-
-# ⚠️ TARGET_URL 运行时传入，不要写进 ENV（会固化进镜像 config 泄露）
-CMD ["/bin/sh", "-c", "node http-client.js \"$TARGET_URL\" /app/out/invoice.pdf"]
-

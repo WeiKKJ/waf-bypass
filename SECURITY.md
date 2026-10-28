@@ -3,7 +3,7 @@
 本文档记录本项目镜像的**敏感信息防护规则**，以及 2026-10 的一次真实泄露事件与修复。
 
 > **当前镜像名**（精简重构后）：
-> `weikkj/waf-token-slim` —— 唯一镜像，提供 HTTP 服务。
+> `weikkj/waf-api` —— 唯一镜像，提供 HTTP 服务。
 >
 > 下文「二、已发生的事件」章节保留的是**历史记录**，其中的旧镜像名
 > （`waf-api` / `waf-selfheal` / `waf-http` / `waf-invoice`）指当时的镜像，不是当前名称。
@@ -38,8 +38,8 @@ CMD ["/bin/sh", "-c", "node http-client.js \"$TARGET_URL\" /app/out/invoice.pdf"
 docker build --build-arg TARGET_URL="https://...Fphm=<发票号码>..."
 
 # ✅ 正确
-docker build -t waf-token-slim:latest .
-docker build -t waf-token-slim:latest .
+docker build -t waf-api:latest .
+docker run -e TARGET_URL="https://...Fphm=..." waf-api:latest
 ```
 
 ### 规则 2：不得把 Cookie 烤进镜像
@@ -56,13 +56,13 @@ COPY --from=cookie /app/waf_cookie.txt ./waf_cookie.txt
 
 ```bash
 # ✅ 正确：从宿主机目录挂载
-docker build -t waf-token-slim:latest .
+docker run -v "$(pwd)/cookie:/app/cookies:ro" -e TARGET_URL="..." waf-api:latest
 ```
 
 ### 规则 3：推送/导出前必须跑扫描
 
 ```bash
-python tools/scan_image_secrets.py weikkj/waf-token-slim:latest
+python tools/scan_image_secrets.py weikkj/waf-api:latest
 ```
 
 退出码 0 = 干净，1 = 发现泄露（禁止推送）。
@@ -157,17 +157,17 @@ docker compose build http-only
 
 # 门禁：扫描
 python tools/scan_image_secrets.py \
-  waf-token-slim:latest
+  waf-api:latest
 ```
 
 ### 推送
 
 ```bash
 # 1. 门禁（必须通过）
-python tools/scan_image_secrets.py weikkj/waf-token-slim:latest
+python tools/scan_image_secrets.py weikkj/waf-api:latest
 
 # 2. 导出
-docker save -o waf-images.tar weikkj/waf-token-slim:latest
+docker save -o waf-images.tar weikkj/waf-api:latest
 
 # 3. 提取
 python tools/extract_manifests.py waf-images.tar dh_manifests
@@ -175,14 +175,14 @@ python tools/extract_blobs.py waf-images.tar dh_blobs
 
 # 4. 推送
 python tools/push_all.py --manifests dh_manifests --blobs dh_blobs --pat "$PAT" \
-  --repos weikkj/waf-token-slim --primary weikkj/waf-token-slim
+  --repos weikkj/waf-api --primary weikkj/waf-api
 ```
 
 ### 导出离线包
 
 ```bash
 docker save -o waf-bypass-images.tar \
-  weikkj/waf-token-slim:latest
+  weikkj/waf-api:latest
 python tools/oci2dockerarchive.py waf-bypass-images.tar waf-legacy.tar
 gzip -6 waf-legacy.tar
 ```

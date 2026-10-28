@@ -40,7 +40,7 @@ Docker daemon 走 `192.168.65.1:3128` 代理，单次长连接约 2 分钟被切
 
 ```bash
 python tools/scan_image_secrets.py \
-  weikkj/waf-token-slim:latest
+  weikkj/waf-api:latest
 ```
 
 退出码 0 = 干净。检查镜像 config（ENV / Cmd）与文件层（`waf_cookie.txt` / `.env`）里
@@ -51,7 +51,7 @@ python tools/scan_image_secrets.py \
 
 ```bash
 docker save -o waf-images.tar \
-  weikkj/waf-token-slim:latest
+  weikkj/waf-api:latest
 ```
 
 ### 2. 提取 manifest 与层 blob
@@ -61,7 +61,7 @@ python tools/extract_manifests.py waf-images.tar dh_manifests   # manifest v2 JS
 python tools/extract_blobs.py    waf-images.tar dh_blobs        # 各层 blob
 ```
 
-`dh_manifests/` 下会生成 `docker.io_weikkj_waf-token-slim.manifest.json` 这样的文件
+`dh_manifests/` 下会生成 `docker.io_weikkj_waf-api.manifest.json` 这样的文件
 （`/` 替换为 `_`）。
 
 ### 3. 一键推送
@@ -69,8 +69,8 @@ python tools/extract_blobs.py    waf-images.tar dh_blobs        # 各层 blob
 ```bash
 python tools/push_all.py \
   --manifests dh_manifests --blobs dh_blobs --pat "$PAT" \
-  --repos weikkj/waf-token-slim \
-  --primary weikkj/waf-token-slim
+  --repos weikkj/waf-api \
+  --primary weikkj/waf-api
 ```
 
 `push_all.py` 对每个 repo 依次做：HEAD 查缺 → 缺失层分块上传 → 跨仓库 mount →
@@ -85,28 +85,28 @@ python tools/push_all.py \
 `push_layer.py` 是**单层**接口：
 
 ```bash
-python tools/push_layer.py --repo weikkj/waf-token-slim \
+python tools/push_layer.py --repo weikkj/waf-api \
   --blob dh_blobs/blob_<digest> --digest sha256:<digest> --pat $PAT
 ```
 
 跨仓库挂载共享层：
 
 ```bash
-python tools/mount_blob.py --repo weikkj/waf-token-slim \
-  --from weikkj/waf-token-slim --digest sha256:27be7e60... --pat $PAT
+python tools/mount_blob.py --repo weikkj/waf-api \
+  --from weikkj/waf-api --digest sha256:27be7e60... --pat $PAT
 ```
 
 提交 manifest（提交前会 HEAD 校验所有层存在，缺层则拒绝提交）：
 
 ```bash
-python tools/push_manifest.py --repo weikkj/waf-token-slim \
-  --manifest dh_manifests/docker.io_weikkj_waf-token-slim.manifest.json --pat $PAT
+python tools/push_manifest.py --repo weikkj/waf-api \
+  --manifest dh_manifests/docker.io_weikkj_waf-api.manifest.json --pat $PAT
 ```
 
 也可以直接用 docker CLI（不走代理、层较小时更省事）：
 
 ```bash
-docker push weikkj/waf-token-slim:latest
+docker push weikkj/waf-api:latest
 ```
 
 但注意 `docker push` 在有代理的环境推大层会断链（见下节），此时用上面的 `push_layer.py`。
@@ -117,8 +117,8 @@ docker push weikkj/waf-token-slim:latest
 
 ```bash
 python tools/mount_blob.py \
-  --repo weikkj/waf-token-slim \
-  --from weikkj/waf-token-slim \
+  --repo weikkj/waf-api \
+  --from weikkj/waf-api \
   --digest sha256:27be7e60... \
   --pat $PAT
 ```
@@ -128,8 +128,8 @@ python tools/mount_blob.py \
 ### 5. 提交 manifest
 
 ```bash
-python tools/push_manifest.py --repo weikkj/waf-token-slim \
-  --manifest dh_manifests/docker.io_weikkj_waf-token-slim.manifest.json --pat $PAT
+python tools/push_manifest.py --repo weikkj/waf-api \
+  --manifest dh_manifests/docker.io_weikkj_waf-api.manifest.json --pat $PAT
 ```
 
 提交前会 HEAD 校验所有层是否已存在，缺层则明确列出并拒绝提交（避免产生「manifest 指向空层」的坏镜像）。
@@ -137,7 +137,7 @@ python tools/push_manifest.py --repo weikkj/waf-token-slim \
 ### 6. 校验
 
 ```bash
-python tools/verify_remote.py --repos weikkj/waf-token-slim
+python tools/verify_remote.py --repos weikkj/waf-api
 ```
 
 匿名拉取 manifest → HEAD 校验每个 blob 存在 → 抽查小层内容重算 sha256 比对。

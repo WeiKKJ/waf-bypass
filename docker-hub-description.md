@@ -8,7 +8,7 @@
 
 ```bash
 docker run -d --name waf-api --shm-size=512m -p 8000:8000 \
-  weikkj/waf-token-slim:latest
+  weikkj/waf-api:latest
 
 curl -G --data-urlencode "url=$TARGET_URL" \
      http://localhost:8000/fetch -o invoice.pdf
@@ -45,10 +45,10 @@ docker compose up -d api
 
 ## 体积
 
-| 镜像 | 磁盘 / 拉取 |
+| 版本 | 磁盘 / 拉取 |
 |---|---|
-| waf-api（旧版） | 3.07GB / 777MB |
-| waf-token-slim（当前） | 815MB / 237MB |
+| 旧版（Playwright 底座） | 3.07GB / 777MB |
+| **当前** | **815MB / 237MB** |
 
 ## 注意
 

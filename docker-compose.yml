@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    image: weikkj/waf-token-slim:latest
+    image: weikkj/waf-api:latest
     environment:
       - WAF_HEAL_TIMEOUT=120
       - WAF_WAIT_MS=14000

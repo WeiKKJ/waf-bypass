@@ -62,7 +62,7 @@ curl -G --data-urlencode "url=$TARGET_URL" \
 
 ```bash
 docker run -d --name waf-api --shm-size=512m -p 8000:8000 \
-  weikkj/waf-token-slim:latest
+  weikkj/waf-api:latest
 
 curl -G --data-urlencode "url=$TARGET_URL" \
      http://localhost:8000/fetch -o invoice.pdf
@@ -117,21 +117,21 @@ const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocke
 
 实测（linux/amd64）：
 
-| 镜像 | 磁盘占用 | 拉取体积 | 说明 |
+| 版本 | 磁盘占用 | 拉取体积 | 说明 |
 |---|---:|---:|---|
-| `weikkj/waf-api`（旧版） | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
-| `weikkj/waf-token-slim`（当前） | **815 MB** | **237 MB** | 唯一镜像：HTTP 服务 |
+| 旧版 | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
+| **当前** | **815 MB** | **237 MB** | Alpine + chromium-headless-shell，纯 Node |
 
 **磁盘 -73%，拉取 -72%。**
 
-> 本项目只发布一个镜像 `weikkj/waf-token-slim`。
+> 本项目只发布一个镜像 `weikkj/waf-api`。
 > 早期的 `waf-selfheal` / `waf-http` / `waf-invoice` 等仓库已删除。
 
 ---
 
 ## HTTP 接口
 
-`docker compose up -d api` 或 `docker run weikkj/waf-token-slim:latest` 后，
+`docker compose up -d api` 或 `docker run weikkj/waf-api:latest` 后，
 服务监听容器内 `:8000`（映射到宿主机 `8000:8000`）。
 
 | 接口 | 说明 |
@@ -231,7 +231,7 @@ Chromium 需要足够的 `/dev/shm`。compose 里已配 `shm_size: 512m`，
 推送前请跑门禁扫描：
 
 ```bash
-python tools/scan_image_secrets.py weikkj/waf-token-slim:latest
+python tools/scan_image_secrets.py weikkj/waf-api:latest
 ```
 
 ---

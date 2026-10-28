@@ -1,0 +1,23 @@
+# 默认按文本处理，提交时统一为 LF（避免容器内 shell 脚本因 CRLF 执行失败）
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.ico binary
+
+# 明确指定 LF 的脚本
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.md text eol=lf

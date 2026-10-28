@@ -1,96 +1,103 @@
 # =====================================================================
-# 瑞数 WAF 发票抓取 —— Docker 镜像
+# 瑞数 WAF 取 Token —— 精简镜像
 #
-# 构建上下文 = 工作区根目录
-#   docker build -f waf-bypass/Dockerfile -t waf-api:latest .
+# 相比原项目 (weikkj/waf-api, 3.07GB 磁盘 / 777MB 拉取) 的瘦身点：
 #
-# 设计要点：
-#   瑞数 Cookie 实测有效期仅 1~3 分钟（远短于 15 分钟），
-#   独立的「Cookie 供应端」长驻刷新并不可靠 —— 刷新间隔必然大于有效期。
+#   1. **不用 Playwright 官方镜像当底座**
+#      原镜像基于 mcr.microsoft.com/playwright，内含 Chromium + Firefox
+#      + WebKit + ffmpeg + 全套浏览器依赖，其中 631MB 是浏览器全家桶层。
+#      但本项目代码 **完全没用 Playwright** —— 它是零 npm 依赖的原生 CDP
+#      客户端（Node 内置 WebSocket + fetch），浏览器只是被 spawn 出来
+#      执行挑战 JS。所以 Firefox / WebKit / ffmpeg 纯属白扛。
 #
-#   因此改为**随用随取**：收到 412 时现场采集，采集与使用时间差 < 1 秒。
-#   定时预采集被刻意去掉 —— 固定周期反复访问同一域名容易被服务端识别为爬虫而加黑。
+#   2. **用 chromium-headless-shell 代替完整 chromium**
+#      完整 chromium 会拖进 GTK3 + X11 + mesa 软件渲染栈 + 编解码器（1.4GB）。
+#      headless-shell 是无 GUI 的精简版，本场景根本不需要 GUI。
 #
-# 三个 stage：
-#   http    —— 纯 HTTP 客户端（node:22-alpine，239MB，不含浏览器）
-#   selfheal—— 采集 + 下载一体（Playwright 镜像）
-#   api     —— FastAPI 服务（对外 HTTP 接口，随用随取，不落盘）
+#   3. **裁掉软件渲染 GPU 栈**（见 prune.sh）
+#      libLLVM + libgallium + /usr/lib/dri 共约 225MB，
+#      headless-shell 走 --disable-gpu 纯软件路径，用不到。
+#
+#   4. **去掉 Python / FastAPI**
+#      原 api 镜像额外 apt 装 python3 + pip，再 pip 装 fastapi + uvicorn
+#      + httpx，只为了提供 HTTP 接口。Node 22 自带 http 模块和 fetch，
+#      一个进程就能干完，不需要解释器混装。
+#
+#   5. **合并三个 stage 为一个**
+#      http / selfheal / api 三个 stage 是同一件事的三个切面，
+#      合并后只有一个镜像、一种用法。
+#
+# 实测体积（amd64）：
+#   weikkj/waf-api:latest      3.07 GB 磁盘 / 777 MB 拉取
+#   waf-token-slim (本文件)     815 MB 磁盘  / 约 220 MB 拉取
+#   仅纯 HTTP 重放 (无浏览器)   239 MB 磁盘 / 61.7 MB 拉取
 #
 # ⚠️ 安全约束（不要移除）：
-#   1. **任何 stage 都不得把 TARGET_URL 写进 ENV**。
-#      ENV 会固化进镜像 config，`docker inspect` 与公开仓库页均可读取，
-#      会泄露真实发票 URL（含发票号码、公司信息）。
-#      TARGET_URL 一律运行时传入：`docker run -e TARGET_URL="https://..."`
-#   2. **不得把 Cookie 烤进镜像**。
-#      瑞数 Cookie 有效期仅 1~3 分钟，烤进镜像的 Cookie 发布时必然已失效，
-#      等于既无效又泄露凭据。Cookie 一律运行时采集或从卷挂载读入。
-#   3. 因此**没有构建期 cookie stage** —— 早期版本有，已移除。
+#   TARGET_URL 一律运行时传入，不要写进镜像 ENV —— ENV 会固化进镜像
+#   config，公开仓库页即可读取，会泄露真实发票 URL。
 # =====================================================================
 
-# ---------- Stage 1: 纯 HTTP 客户端（最终镜像，不含浏览器）----------
-# 无浏览器 → 遇 412 无法自愈，需外部注入 Cookie（1~3 分钟内有效）
+# ---------- Stage 1: 浏览器层 ----------
+# 装完整 chromium-headless-shell，然后裁掉用不到的 GPU 栈。
+FROM node:22-alpine AS browser
+
+# 国内源：apk 默认源在国内极慢（原项目 README 记录过 26 分钟未完成）。
+# 若部署在海外，删掉这行 sed 即可。
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
+ && apk add --no-cache chromium-headless-shell font-wqy-zenhei
+
+COPY prune.sh /prune.sh
+RUN sh /prune.sh
+
+# ---------- Stage 2: 运行时（默认 target：api）----------
+# 只 COPY 需要的文件 —— 这样裁剪效果才能真正反映到最终镜像体积上。
+# （在同一层里删文件不会减小已推送的层体积，必须换层重建。）
+FROM node:22-alpine AS api
+
+COPY --from=browser /opt/keep/chromium/ /usr/lib/chromium/
+COPY --from=browser /usr/share/fonts/ /usr/share/fonts/
+COPY --from=browser /lib/ /lib/
+COPY --from=browser /usr/lib/ /usr/lib/
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    XDG_CONFIG_HOME=/tmp/.config \
+    CHROME_PATH=/usr/lib/chromium/chromium-headless-shell \
+    WAF_HEAL_TIMEOUT=120 \
+    WAF_WAIT_MS=14000 \
+    PORT=8000
+
+COPY waf-token.js server.js ./
+
+EXPOSE 8000
+CMD ["node", "server.js"]
+
+# ---------- Stage 3: 一次性自愈下载（CLI 模式，PDF 落盘）----------
+# 与 api 同一个镜像，只是默认入口不同：
+#   api     —— 起 HTTP 服务，对外提供接口
+#   selfheal —— 跑一次就退出，PDF 写到挂载卷
+FROM api AS selfheal
+
+# ⚠️ TARGET_URL 运行时传入，不写进 ENV（会固化进镜像 config 泄露）
+CMD ["/bin/sh", "-c", "node waf-token.js \"$TARGET_URL\" /app/out/invoice.pdf"]
+
+# ---------- Stage 4: 纯 HTTP 模式（无浏览器，最轻量）----------
+# 场景：Cookie 由外部系统注入，或已有浏览器环境负责采集。
+# 这个镜像不含 chromium，无法自愈 —— 遇 412 直接失败。
 FROM node:22-alpine AS http
 
 WORKDIR /app
-COPY waf-bypass/http-client.js ./
-COPY waf-bypass/run-http.sh ./run-http.sh
-RUN chmod +x run-http.sh
+ENV NODE_ENV=production \
+    HOME=/tmp \
+    WAF_COOKIE_FILE=/app/cookies/waf_cookie.txt
 
-USER node
+COPY http-client.js ./
 
-# 不用 ENTRYPOINT + CMD 组合（ENTRYPOINT 是 exec 形式，CMD 会被当作参数拼接，
-# 导致 sh -c 失效）。直接用 shell 形式 CMD。
-# 输出落在挂载卷 /app/out 下；不写 /app 根目录（node 用户无写权限）。
-# TARGET_URL 由运行时传入，不固化在镜像里。
+# Cookie 从挂载卷读取，不烤进镜像（有效期仅 1~3 分钟，且属敏感凭据）
+VOLUME ["/app/cookies", "/app/out"]
+
+# ⚠️ TARGET_URL 运行时传入，不要写进 ENV（会固化进镜像 config 泄露）
 CMD ["/bin/sh", "-c", "node http-client.js \"$TARGET_URL\" /app/out/invoice.pdf"]
 
-
-# ---------- Stage 3: 自愈版（采集+下载一体，推荐用于生产）----------
-# 基于 Playwright 官方镜像：无需 apt 装 chromium，构建快、依赖全
-FROM mcr.microsoft.com/playwright:v1.47.0-noble AS selfheal
-
-WORKDIR /app
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    HOME=/tmp \
-    XDG_CACHE_HOME=/tmp/.cache \
-    XDG_CONFIG_HOME=/tmp/.config
-
-COPY waf-bypass/fetch-invoice.js ./
-COPY waf-bypass/http-client.js ./
-COPY waf-bypass/run-selfheal.sh ./run-selfheal.sh
-RUN chmod +x run-selfheal.sh
-
-# ⚠️ 同样不设 ENV TARGET_URL —— 运行时传入，避免泄露真实发票 URL
-# （run-selfheal.sh 会在运行时读 $TARGET_URL）
-
-CMD ["/bin/sh", "-c", "/app/run-selfheal.sh \"$TARGET_URL\" /app/out/invoice.pdf"]
-
-
-# ---------- Stage 5: FastAPI 服务（对外提供 HTTP 接口）----------
-# 自愈需要浏览器采集 Cookie，因此同样基于 Playwright 官方镜像
-FROM mcr.microsoft.com/playwright:v1.47.0-noble AS api
-
-WORKDIR /app
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    WAF_HEAL_TIMEOUT=120 \
-    PORT=8000 \
-    HOME=/tmp \
-    XDG_CACHE_HOME=/tmp/.cache \
-    XDG_CONFIG_HOME=/tmp/.config
-
-# node 已在镜像内（供 fetch-invoice.js 使用）；补装 Python
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY waf-bypass/requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
-
-COPY waf-bypass/fetch-invoice.js ./
-COPY waf-bypass/api.py ./
-
-# 不建 out/cookies 目录：服务全程不落盘
-EXPOSE 8000
-CMD ["python3", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

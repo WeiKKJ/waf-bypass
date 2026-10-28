@@ -177,16 +177,58 @@ class Browser {
       });
 
       await s('Page.navigate', { url: targetUrl });
-      await sleep(CHALLENGE_WAIT_MS);
 
-      const ck = await s('Network.getAllCookies');
+      // ── 等待挑战完成：轮询 Cookie，而不是固定死等 ──
+      // 挑战 JS 执行完会写入 Cookie。与其固定 sleep 14 秒（绝大多数情况
+      // JS 几百毫秒就跑完了），不如轮询 Cookie 一出现就提前返回。
+      //
+      // 关键细节：瑞数挑战 JS 可能分多次写 Cookie（先写探测 cookie，
+      // 再写最终 cookie）。所以不能「一见到 cookie 就走」，而是要求
+      // Cookie 数量连续 stable_ticks 次不变，才认为挑战写完了。
       const host = new URL(targetUrl).hostname;
-      const cookies = (ck.result.cookies || []).filter(c => c.domain.includes(host));
+      const pollMs = parseInt(process.env.WAF_POLL_MS || '250', 10);
+      const stableTicks = parseInt(process.env.WAF_STABLE_TICKS || '3', 10);
+      const deadline = Date.now() + CHALLENGE_WAIT_MS;
 
-      return {
-        cookie: cookies.map(c => `${c.name}=${c.value}`).join('; '),
-        names: cookies.map(c => c.name),
-      };
+      let cookie = '';
+      let names = [];
+      let lastSig = '';
+      let stable = 0;
+
+      while (Date.now() < deadline) {
+        await sleep(pollMs);
+        const ck = await s('Network.getAllCookies');
+        const cookies = (ck.result.cookies || []).filter(c => c.domain.includes(host));
+        const sig = cookies.map(c => `${c.name}=${c.value}`).sort().join(';');
+
+        if (sig) {
+          if (sig === lastSig) {
+            // 连续两次读到完全相同的 cookie —— 认为挑战已写完
+            stable++;
+            if (stable >= stableTicks) {
+              cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+              names = cookies.map(c => c.name);
+              break;
+            }
+          } else {
+            // 内容还在变 —— 挑战 JS 仍在写，继续等
+            stable = 0;
+            lastSig = sig;
+            cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+            names = cookies.map(c => c.name);
+          }
+        }
+      }
+
+      // 兜底：超时但已经读到过 cookie（挑战慢但已生效）
+      if (!cookie) {
+        const ck = await s('Network.getAllCookies');
+        const cookies = (ck.result.cookies || []).filter(c => c.domain.includes(host));
+        cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+        names = cookies.map(c => c.name);
+      }
+
+      return { cookie, names };
     } finally {
       // 关掉 target 并销毁 context，避免 cookie 泄漏到下一次请求
       await this.send('Target.closeTarget', { targetId }).catch(() => {});

@@ -1,0 +1,16 @@
+# Never send credentials or local downloads to the Docker daemon.
+.env
+.env.*
+!.env.example
+cookie/
+cookies/
+out/
+*.cookie
+*.pdf
+
+# Repository metadata and files not used by the image.
+.git/
+.github/
+tools/
+*.md
+!README.md

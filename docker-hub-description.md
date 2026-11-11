@@ -2,7 +2,8 @@
 
 跨平台处理瑞数（Riverbed）动态安全防护返回的 HTTP 412 挑战页，抓取受保护的发票 PDF。
 
-仅 Docker 方式 —— 全部能力封装在镜像内，宿主机无需安装 Node.js 或浏览器。
+仅 Docker 方式 —— API 是静态 Go 二进制，浏览器和所有能力封装在镜像内，
+宿主机无需安装 Go、Node.js 或浏览器。
 
 ## 用法
 
@@ -45,10 +46,8 @@ docker compose up -d api
 
 ## 体积
 
-| 版本 | 磁盘 / 拉取 |
-|---|---|
-| 旧版（Playwright 底座） | 3.07GB / 777MB |
-| **当前** | **815MB / 237MB** |
+本机 linux/amd64 构建约 **603MB**（Docker 镜像大小）。压缩拉取体积尚未测量。
+静态 Go API 本身约 **6.4MiB**；镜像其余部分主要是 Chromium headless shell 和运行库。
 
 ## 注意
 

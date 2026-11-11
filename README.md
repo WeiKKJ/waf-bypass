@@ -2,10 +2,9 @@
 
 跨平台处理**瑞数（Riverbed）动态安全防护**返回的 **HTTP 412 挑战页**，抓取受保护的发票 PDF。
 
-> **本仓库已精简重构。** 早期版本基于 Playwright 官方镜像 + FastAPI，镜像体积 3.07GB，
-> 其中绝大部分是**从未被调用**的 Firefox / WebKit / ffmpeg。
-> 新版换用 Alpine + chromium-headless-shell 并移除 Python 栈，**镜像降至 815MB（拉取 237MB）**，
-> 且**每次请求快约 10 倍**。详见 [为什么原来的镜像这么大](#为什么原来的镜像这么大)。
+> **本仓库已精简重构。** 早期 Playwright + FastAPI 镜像为 3.07GB；之后的 Node 版约 813MB。
+> 当前 API 使用静态 Go 二进制控制 Alpine `chromium-headless-shell`，本机镜像约 **603MB**，
+> 比 Node 版减少约 **210MB（26%）**。详见 [为什么原来的镜像这么大](#为什么原来的镜像这么大)。
 
 ---
 
@@ -72,7 +71,7 @@ curl -G --data-urlencode "url=$TARGET_URL" \
 
 ## 为什么原来的镜像这么大
 
-旧 Dockerfile 的底座是：
+早期 Dockerfile 的底座是：
 
 ```dockerfile
 FROM mcr.microsoft.com/playwright:v1.47.0-noble
@@ -81,32 +80,24 @@ FROM mcr.microsoft.com/playwright:v1.47.0-noble
 这个镜像包含 **Chromium + Firefox + WebKit + ffmpeg + 全套浏览器依赖**，
 实测 manifest 里光是浏览器全家桶就占 **631MB 单层**。
 
-**但这个项目的代码从来没用过 Playwright。** 旧版 `fetch-invoice.js` 是零 npm 依赖的
-原生 CDP 客户端：
-
-```js
-const chrome = spawn(browserPath, ['--remote-debugging-port=...']);
-const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocket
-```
-
-它只是把 Playwright 镜像当成「一个带 Chromium 的 Ubuntu」来用 ——
+**项目的浏览器控制一直通过 CDP 完成，没有使用 Playwright API。** Playwright 镜像只是被当成
+“带 Chromium 的 Ubuntu”来用 ——
 **Firefox、WebKit、ffmpeg 三家从头到尾没被碰过**。
 
-第二处浪费：旧 `api` stage 额外 `apt` 装了 `python3` + `pip`，
-再 `pip` 装 `fastapi` + `uvicorn` + `httpx`，**只为了提供 HTTP 接口**。
-而 Node 22 自带 `http` 模块和 `fetch`，一个进程就能干完。
+后续 Node 版去掉了 Python 栈；当前 Go 版再移除 Node 运行时，API 编译为约 6.4MiB 的静态二进制。
+Go 只在构建阶段使用，运行镜像不包含 Go 工具链。
 
 ### 瘦身的三个动作（缺一不可）
 
 | 动作 | 省下 |
 |---|---|
-| ① 换掉 Playwright 底座 → Alpine + chromium-headless-shell | ~1.5 GB |
-| ② headless-shell 替代完整 chromium → 去掉 GTK3 / X11 / mesa 依赖 | ~400 MB |
-| ③ **multi-stage 重建** | ~400 MB |
+| ① Playwright 镜像改为 Alpine + headless-shell | 不再携带多套浏览器引擎 |
+| ② multi-stage 安装并裁剪 Chromium 依赖 | 不把安装工具和 Mesa GPU 栈带入运行层 |
+| ③ 静态 Go API 替代 Node 运行时 | 相比 Node 版实测减少约 210MB |
 
-第 ③ 点最容易被忽略：**删除文件不会减小已推送的镜像层**。
-在同一层里 `rm` 掉 225MB 的库，镜像体积不变（层里仍含被删文件）。
-必须 multi-stage —— builder 里装 + 裁，最终镜像只 `COPY` 需要的内容。
+Dockerfile 在临时阶段同一个 `RUN` 层安装 Chromium 并裁掉不需要的 Mesa 库，
+避免这些文件先进入旧层、再以删除标记留在镜像历史里。最终镜像只接收裁剪后的
+Chromium 本体和运行所需的系统库，不包含 APK 安装缓存和临时构建文件。
 
 裁掉的 225MB 是 `libLLVM.so.22.1` + `libgallium-26.1.6.so` + `/usr/lib/dri`
 （Mesa 软件渲染 GPU 栈），headless 走 `--disable-gpu` 纯软件光栅化，用不到。
@@ -120,9 +111,10 @@ const ws = new WebSocket(version.webSocketDebuggerUrl);  // Node 内置 WebSocke
 | 版本 | 磁盘占用 | 拉取体积 | 说明 |
 |---|---:|---:|---|
 | 旧版 | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
-| **当前** | **815 MB** | **237 MB** | Alpine + chromium-headless-shell，纯 Node |
+| Node 版（前一版） | 813 MB | 未测 | Alpine + Chromium + Node API |
+| **当前 Go 版** | **603 MB** | 未测 | Alpine + Chromium + 静态 Go API |
 
-**磁盘 -73%，拉取 -72%。**
+Go 版比 Node 版本机镜像小约 **26%**。压缩拉取体积尚未测量。
 
 > 本项目只发布一个镜像 `weikkj/waf-api`。
 > 早期的 `waf-selfheal` / `waf-http` / `waf-invoice` 等仓库已删除。
@@ -205,8 +197,8 @@ Chrome 启动时先开空白页，且在部分环境下 headless 模式实际未
 ## 常见问题
 
 **Q：构建很慢？**
-apk 默认源在国内极慢。Dockerfile 里已内置阿里云源，但换源后仍需约 10 分钟
-（网络瓶颈，不是磁盘问题）。层命中缓存后重建只要 11 秒。
+Dockerfile 默认使用清华 Alpine 镜像源。在国内网络下，本机完整构建约 80 秒；
+后续命中缓存时只需数秒。若部署在海外，可切回 Alpine 官方源。
 
 **Q：容器报 `Chromium 启动超时 / CDP 未就绪`？**
 Chromium 需要足够的 `/dev/shm`。compose 里已配 `shm_size: 512m`，

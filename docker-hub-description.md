@@ -46,7 +46,7 @@ docker compose up -d api
 
 ## 体积
 
-本机 linux/amd64 构建约 **603MB**（Docker 镜像大小）。压缩拉取体积尚未测量。
+linux/amd64 镜像约 **603MB**（Docker 镜像大小，Docker Hub 压缩层约 **181MB**）。
 静态 Go API 本身约 **6.4MiB**；镜像其余部分主要是 Chromium headless shell 和运行库。
 
 ## 注意

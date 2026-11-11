@@ -112,9 +112,9 @@ Chromium 本体和运行所需的系统库，不包含 APK 安装缓存和临时
 |---|---:|---:|---|
 | 旧版 | 3.07 GB | 777 MB | Playwright 底座 + Python 栈 |
 | Node 版（前一版） | 813 MB | 未测 | Alpine + Chromium + Node API |
-| **当前 Go 版** | **603 MB** | 未测 | Alpine + Chromium + 静态 Go API |
+| **当前 Go 版** | **603 MB** | **181 MB** | Alpine + Chromium + 静态 Go API |
 
-Go 版比 Node 版本机镜像小约 **26%**。压缩拉取体积尚未测量。
+Go 版比 Node 版本机镜像小约 **26%**。拉取体积按 Docker Hub amd64 manifest 压缩层合计计算。
 
 > 本项目只发布一个镜像 `weikkj/waf-api`。
 > 早期的 `waf-selfheal` / `waf-http` / `waf-invoice` 等仓库已删除。
